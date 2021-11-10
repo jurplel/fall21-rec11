@@ -141,10 +141,123 @@ class Memory<T> {
   }
 }
 
-// TODO: Implement the plugin
-//
-// function init (): GamePlugin {
-//     throw new Error("not yet implemented")
-// }
-//
-// export { init }
+class MemoryPlugin implements GamePlugin {
+    #framework: GameFramework | null = null
+    #game: Memory<string> = new Memory<string>(2, WORDS)
+    #numberOfCardsSelected = 0
+    #firstIndexSelected = -1
+    #secondIndexSelected = -1
+    #matchFound = false
+    getGameName (): string {
+      return GAME_NAME
+    }
+
+    getGridWidth (): number {
+      return WIDTH
+    }
+
+    getGridHeight (): number {
+      return HEIGHT
+    }
+
+    onRegister (framework: GameFramework): void {
+      this.#framework = framework
+    }
+
+    onNewGame (): void {
+      if (this.#framework === null) return
+      this.#game = new Memory(2, WORDS)
+      for (let i = 0; i < HEIGHT; i++) {
+        for (let j = 0; j < WIDTH; j++) {
+          this.#framework.setSquare(i, j, UNKNOWN_SQUARE_STRING)
+        }
+      }
+      this.#numberOfCardsSelected = 0
+      this.#firstIndexSelected = -1 // Negative values prevent processing of "previous" selections on first turn
+      this.#secondIndexSelected = -1
+      this.#framework.setFooterText(SELECT_FIRST_CARD_MSG)
+    }
+
+    onNewMove (): void {
+      this.#numberOfCardsSelected = 0
+    }
+
+    #boardPositionFor (x: number, y: number): number {
+      return (y * WIDTH) + x
+    }
+
+    isMoveValid (x: number, y: number): boolean {
+      if (this.#numberOfCardsSelected === 1 && this.#boardPositionFor(x, y) === this.#firstIndexSelected) {
+        return false // Prevents re-selection of first card already selected
+      }
+      return this.#game.hasItemAt(this.#boardPositionFor(x, y))
+    }
+
+    isMoveOver (): boolean {
+      return this.#numberOfCardsSelected > 1
+    }
+
+    onMovePlayed (x: number, y: number): void {
+      if (this.#framework === null) return
+      if (this.#numberOfCardsSelected === 0) {
+        if (this.#firstIndexSelected >= 0 && this.#secondIndexSelected >= 0) { // Avoids processing cards "selected" before first turn
+          this.#framework.setSquare(this.#firstIndexSelected % HEIGHT, Math.floor(this.#firstIndexSelected / HEIGHT),
+            this.#matchFound ? BLANK_SQUARE_STRING : UNKNOWN_SQUARE_STRING)
+          this.#framework.setSquare(this.#secondIndexSelected % HEIGHT, Math.floor(this.#secondIndexSelected / HEIGHT),
+            this.#matchFound ? BLANK_SQUARE_STRING : UNKNOWN_SQUARE_STRING)
+        }
+
+        this.#firstIndexSelected = this.#boardPositionFor(x, y)
+        this.#numberOfCardsSelected++
+        this.#framework.setSquare(x, y, this.#game.itemAt(this.#firstIndexSelected))
+        this.#framework.setFooterText(SELECT_SECOND_CARD_MSG)
+        return
+      }
+
+      if (this.#numberOfCardsSelected !== 1) throw Error('assertion failed')
+      this.#numberOfCardsSelected++
+      this.#secondIndexSelected = this.#boardPositionFor(x, y)
+      this.#framework.setSquare(x, y, this.#game.itemAt(this.#secondIndexSelected))
+      this.#matchFound = this.#game.selectMatch(this.#firstIndexSelected, this.#secondIndexSelected)
+      this.#framework.setFooterText(this.#matchFound ? MATCH_FOUND_MSG : NOT_A_MATCH_MSG)
+      if (this.#matchFound) {
+        this.#numberOfCardsSelected = 0
+      }
+    }
+
+    isGameOver (): boolean {
+      return this.#game.isOver()
+    }
+
+    getGameOverMessage (): string {
+      const winners = this.#game.leaders()
+      if (winners.length === 1) { return PLAYER_WON_MSG.replace('%d', (winners[0] + 1).toString()) }
+
+      return PLAYERS_TIED_MSG.replace('%s', this.#tiedString(winners))
+    }
+
+    #tiedString (winners: number[]): string {
+      if (winners.length === 2) {
+        return `${winners[0] + 1} and ${winners[1] + 1}`
+      }
+      let result = ''
+      const lastPosition = winners.length - 1
+      for (let i = 0; i < lastPosition; i++) {
+        result = result + `${winners[i] + 1}, `
+      }
+      result = result + `and ${winners[lastPosition] + 1}`
+      return result
+    }
+
+    onGameClosed (): void {
+    }
+
+    currentPlayer (): string {
+      return (this.#game.currentPlayer + 1).toString()
+    }
+}
+
+function init (): GamePlugin {
+  return new MemoryPlugin()
+}
+export { init }
